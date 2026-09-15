@@ -81,7 +81,7 @@ public:
 
   // The main function for solving the equations. It advances the solution from
   // t1 to t2 in steps of dt.
-  void solve(double t1, double t2, double dt);
+  void solve(double t1, double t2, int nsteps, double dt);
 
   // The following are accessors for various options
   bool use_only_ideal_step() const { return use_ideal_step_only; }

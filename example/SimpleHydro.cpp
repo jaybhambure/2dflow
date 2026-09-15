@@ -191,7 +191,7 @@ PetscErrorCode RunCode() {
   while (t < t_end) {
     t += dt;
     std::cout << "Current time: " << t << std::endl;
-    vischydro.solve(t, t + dt, dt);
+    vischydro.solve(t, t + dt, 1, dt);
     istep++;
     if (istep % nprint == 0) {
       simple_output(vischydro, out, istep, t);

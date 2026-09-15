@@ -75,12 +75,18 @@ void Vischydro::save(const std::string &filename) {
               "HDF5 support not available. Cannot save to file.\n");
 #endif
 }
-void Vischydro::solve(double t1, double t2, double dt) {
+
+void Vischydro::solve(double t1, double t2, int nsteps, double dt) {
+  const double dt_chunk = (t2 - t1)/static_cast<double>(nsteps);
+
   PetscCallVoid(TSSetTime(stepper, t1));
+  PetscCallVoid(TSSetStepNumber(stepper, 0));
+  PetscCallVoid(TSSetTimeStep(stepper, dt_chunk));
+  PetscCallVoid(TSSetMaxSteps(stepper, nsteps));
   PetscCallVoid(TSSetMaxTime(stepper, t2));
-  PetscCallVoid(TSSetTimeStep(stepper, dt));
   PetscCallVoid(TSSolve(stepper, qsolution));
 }
+
 
 PetscErrorCode TransferSolutionToQGrid(const DM &domain, const Vec &solution,
                                        const DM &qdomain,

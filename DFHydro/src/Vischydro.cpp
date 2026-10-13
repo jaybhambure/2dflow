@@ -1016,6 +1016,16 @@ Vischydro::Vischydro(const int &nx_i, const double &xmin_i,
     TSSetIFunction(stepper, Residual, LHSIFunction2, this);
     TSSetIJacobian(stepper, Jacobian, Jacobian, LHSIJacobian2, this);
 
+    //Configure the preconditioner
+    SNES snes;
+    KSP ksp;
+    PC pc;
+    PetscCallVoid(TSGetSNES(stepper, &snes));
+    PetscCallVoid(SNESGetKSP(snes, &ksp));
+    PetscCallVoid(KSPGetPC(ksp, &pc));
+
+    PetscCallVoid(PCSetType(pc, PCJACOBI));
+
     // Allow for a couple of failed iterations before giving up
     PetscCallVoid(TSSetMaxSNESFailures(stepper, 5));
     TSSetFromOptions(stepper);

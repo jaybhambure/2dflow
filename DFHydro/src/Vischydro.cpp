@@ -720,9 +720,11 @@ PetscErrorCode LHSIJacobian2(TS ts, PetscReal t, Vec u, Vec udot,
   PetscCall(MatZeroEntries(P));
   PetscCall(MatShift(P, shift));
 
-  MatStencil row{};
+  std::array<MatStencil, 12> rows_d{};
   std::array<MatStencil, 12> columns_d{};
-  std::array<PetscScalar, 12> values_d{};
+  std::array<MatStencil, 4> row_blocks_d{};
+  std::array<MatStencil, 4> column_blocks_d{};
+  std::array<PetscScalar, 12 * 12> values_d{};
 
   std::array<PetscScalar, 36> chiinv_d{};
   MDSpan<PetscScalar, 4, 3, 3> chiinv(chiinv_d.data());
@@ -755,45 +757,58 @@ PetscErrorCode LHSIJacobian2(TS ts, PetscReal t, Vec u, Vec udot,
       evaluate_vertex_chiinv(au[j][i], au[j][i + 1], au[j + 1][i],
                              au[j + 1][i + 1], *run->eos, chiinv_d);
 
+      int nc = 0;
+      for (int s2 = 0; s2 < 4; s2++) {
+        int ip2 = i + is[s2];
+        int jp2 = j + js[s2];
+
+        if (not run->has_periodic_bc()) {
+          ip2 = std::min(std::max(ip2, 0), info.mx - 1);
+          jp2 = std::min(std::max(jp2, 0), info.my - 1);
+        }
+
+        auto &column_block = column_blocks_d[s2];
+        column_block.i = ip2;
+        column_block.j = jp2;
+        for (int c2 = 0; c2 < 3; c2++) {
+          auto &column = columns_d[nc++];
+          column.i = ip2;
+          column.j = jp2;
+          column.c = c2;
+        }
+      }
+
+      int nr = 0;
+      int nrb = 0;
       for (int s1 = 0; s1 < 4; s1++) {
+        int ip1 = i + is[s1];
+        int jp1 = j + js[s1];
+
+        // Skip rows outside the computational domain.
+        if (not(ip1 >= ixs and ip1 < ixs + ixm and jp1 >= jys and
+                jp1 < jys + jym)) {
+          continue;
+        }
+
+        auto &row_block = row_blocks_d[nrb++];
+        row_block.i = ip1;
+        row_block.j = jp1;
+
         for (int c1 = 0; c1 < 3; c1++) {
-
-          int ip1 = i + is[s1];
-          int jp1 = j + js[s1];
-
-          // skip if the row is outside computational domain.
-          if (not(ip1 >= ixs and ip1 < ixs + ixm and jp1 >= jys and
-                  jp1 < jys + jym)) {
-            continue;
-          }
-
-          row.i = ip1; // row(s1, c1);
-          row.j = jp1;
-          row.c = c1;
           if (c1 == 0 and run->get_highest_order_term_only()) {
             continue;
           }
 
-          int nc = 0;
+          auto &row = rows_d[nr];
+          row.i = ip1;
+          row.j = jp1;
+          row.c = c1;
+
           int nv = 0;
           for (int s2 = 0; s2 < 4; s2++) {
             for (int c2 = 0; c2 < 3; c2++) {
-
-              int ip2 = i + is[s2];
-              int jp2 = j + js[s2];
-
-              if (not run->has_periodic_bc()) {
-                ip2 = std::min(std::max(ip2, 0), info.mx - 1);
-                jp2 = std::min(std::max(jp2, 0), info.my - 1);
-              }
-
-              auto &column = columns_d[nc++]; // columns(s2, c2);
-              column.i = ip2;
-              column.j = jp2;
-              column.c = c2;
-
               if (c1 == 0) {
-                auto &value = values_d[nv++]; // values(s1, c1, s2, c2);
+                auto &value = values_d[nr * nc + nv++];
                 value = K[s1] * knn * K[s2] * chiinv(s2, c2, 0) +
                         K[s1] * knx(0, 0) * Dx(s2, 0) * chiinv(s2, c2, 1 + 0) +
                         K[s1] * knx(0, 1) * Dx(s2, 0) * chiinv(s2, c2, 1 + 1) +
@@ -801,7 +816,7 @@ PetscErrorCode LHSIJacobian2(TS ts, PetscReal t, Vec u, Vec udot,
                         K[s1] * knx(1, 1) * Dx(s2, 1) * chiinv(s2, c2, 1 + 1);
               } else if (c1 == 1 or c1 == 2) {
                 int l1 = c1 - 1;
-                auto &value = values_d[nv++]; // values(s1, c1, s2, c2);
+                auto &value = values_d[nr * nc + nv++];
                 value = 0.0;
                 for (int l2 = 0; l2 < 2; l2++) {
                   value +=
@@ -818,8 +833,20 @@ PetscErrorCode LHSIJacobian2(TS ts, PetscReal t, Vec u, Vec udot,
               }
             }
           }
-          MatSetValuesStencil(P, 1, &row, nc, columns_d.data(), values_d.data(),
-                              ADD_VALUES);
+          nr++;
+        }
+      }
+      if (nr > 0) {
+        if (run->get_highest_order_term_only()) {
+          // This mode omits the energy row, so its rows are not full blocks.
+          PetscCall(MatSetValuesStencil(P, nr, rows_d.data(), nc,
+                                        columns_d.data(), values_d.data(),
+                                        ADD_VALUES));
+        } else {
+          // PETSc expects the 3-component blocks in row-major order.
+          PetscCall(MatSetValuesBlockedStencil(
+              P, nrb, row_blocks_d.data(), 4, column_blocks_d.data(),
+              values_d.data(), ADD_VALUES));
         }
       }
     }
@@ -922,7 +949,25 @@ Vischydro::Vischydro(const int &nx_i, const double &xmin_i,
 
   // Create a domain and vector for the charges only. This is what the time
   // stepper will work on.
-  DMDACreateCompatibleDMDA(domain, VischydroNode::Ncharge, &qdomain);
+  // The full state needs two ghost cells for the reconstructed Euler fluxes.
+  // The charge Jacobian only couples the 3x3 box around each cell, so give
+  // its DMDA a one-cell stencil to avoid preallocating unused matrix entries.
+  PetscInt qnx, qny, nproc_x, nproc_y;
+  DMBoundaryType boundary_x, boundary_y;
+  DMDAStencilType stencil_type;
+  const PetscInt *ownership_x, *ownership_y;
+  PetscCallVoid(DMDAGetInfo(domain, nullptr, &qnx, &qny, nullptr,
+                           &nproc_x, &nproc_y, nullptr, nullptr, nullptr,
+                           &boundary_x, &boundary_y, nullptr, &stencil_type));
+  PetscCallVoid(DMDAGetOwnershipRanges(domain, &ownership_x, &ownership_y,
+                                      nullptr));
+  PetscCallVoid(DMDACreate2d(PETSC_COMM_WORLD, boundary_x, boundary_y,
+                             stencil_type, qnx, qny, nproc_x, nproc_y,
+                             VischydroNode::Ncharge, 1, ownership_x,
+                             ownership_y, &qdomain));
+  // Charge components share dense 3x3 couplings at each grid point.
+  PetscCallVoid(DMSetMatType(qdomain, MATBAIJ));
+  PetscCallVoid(DMSetUp(qdomain));
   DMCreateGlobalVector(qdomain, &qsolution);
 
   // Set coordinates

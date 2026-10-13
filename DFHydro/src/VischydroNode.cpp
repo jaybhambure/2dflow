@@ -183,7 +183,7 @@ bool vhnode_make_initial_guess(VischydroNode &n, const double &E,
                                const double &Mx, const double &My,
                                const double &c2) {
   double M = sqrt(Mx * Mx + My * My);
-  double disc = pow(1 + c2, 2) * pow(E, 2) - 4 * c2 * pow(M, 2);
+  double disc = Power(1 + c2, 2) * Power(E, 2) - 4 * c2 * Power(M, 2);
   if (disc < 0.) {
     return false;
   }
@@ -338,7 +338,7 @@ double idealHydroCellIFunctionDerivative(const double &e,
                                          /* out */ VischydroNode &n,
                                          const EOS &eos) {
   double Mnrm = n.Mnrm();
-  return 1. - n.cs2 * pow(Mnrm / (n.E + n.p), 2);
+  return 1. - n.cs2 * Power(Mnrm / (n.E + n.p), 2);
 }
 
 // This routine uses the idealHydroCellIFunction and
@@ -440,7 +440,22 @@ void vhnode_chiinv(const VischydroNode &n, const EOS &eos,
       u0 / w;
 }
 
-inline double Power(double base, int exp) { return std::pow(base, exp); }
+inline double Power(double base, int exp) {
+  // The generated kappa expressions use only these small integer powers.
+  const double square = base * base;
+  switch (exp) {
+  case 2:
+    return square;
+  case 3:
+    return square * base;
+  case 4:
+    return square * square;
+  case 6:
+    return (square * square) * square;
+  default:
+    return std::pow(base, exp);
+  }
+}
 
 // Returns the value of knn, knx, kxx for the given VischydroNode n and EOS
 void vhnode_kappa(const VischydroNode &n, const EOS &eos, double &knn,
@@ -455,8 +470,8 @@ void vhnode_kappa(const VischydroNode &n, const EOS &eos, double &knn,
   // double rhob = 0.; // not used
   double T = 1. / beta;
   double s = n.s();
-  double Teta = T * s * eos.get_eta_by_s(T, 0.) / pow(1 - cs2 * v2, 2);
-  double Tzeta = T * s * eos.get_zeta_by_s(T, 0.) / pow(1 - cs2 * v2, 2);
+  double Teta = T * s * eos.get_eta_by_s(T, 0.) / Power(1 - cs2 * v2, 2);
+  double Tzeta = T * s * eos.get_zeta_by_s(T, 0.) / Power(1 - cs2 * v2, 2);
 
   double knn_shear, knn_bulk;
   std::array<double, 4> knx_shear, knx_bulk;

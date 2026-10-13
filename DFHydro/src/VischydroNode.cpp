@@ -4,6 +4,24 @@
 
 namespace DFHydro {
 
+inline double Power(double base, int exp) {
+  // The generated kappa expressions use only these small integer powers.
+  const double square = base * base;
+  switch (exp) {
+  case 2:
+    return square;
+  case 3:
+    return square * base;
+  case 4:
+    return square * square;
+  case 6:
+    return (square * square) * square;
+  default:
+    return std::pow(base, exp);
+  }
+}
+
+
 // FillVischydroNode is a function that fills the VischydroNode with the values
 // of the EOS, starting from the energy density e and the velocity u[]. The
 // values of E and M are calculated from the EOS.
@@ -438,23 +456,6 @@ void vhnode_chiinv(const VischydroNode &n, const EOS &eos,
   chiinv(2, 2) =
       (1 - v2 + ((-1 + cs2 * (-4 + v2)) * vy * vy) / (-1 + cs2 * v2)) * beta *
       u0 / w;
-}
-
-inline double Power(double base, int exp) {
-  // The generated kappa expressions use only these small integer powers.
-  const double square = base * base;
-  switch (exp) {
-  case 2:
-    return square;
-  case 3:
-    return square * base;
-  case 4:
-    return square * square;
-  case 6:
-    return (square * square) * square;
-  default:
-    return std::pow(base, exp);
-  }
 }
 
 // Returns the value of knn, knx, kxx for the given VischydroNode n and EOS
